@@ -1,6 +1,11 @@
 # Supabase File Manager
 
-A powerful, secure desktop app for managing Supabase Storage — built with Tauri + React.
+![License](https://img.shields.io/github/license/ManasN9401/supabase-file-manager?color=blue)
+![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=flat&logo=supabase&logoColor=white)
+![Tauri](https://img.shields.io/badge/Tauri-FFC131?style=flat&logo=tauri&logoColor=white)
+![React](https://img.shields.io/badge/React-61DAFB?style=flat&logo=react&logoColor=black)
+
+A lightweight desktop app for managing Supabase Storage — built with Tauri + React.
 
 ## 🚀 Getting Started
 
