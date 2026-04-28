@@ -1,6 +1,6 @@
 # Supabase File Manager
 
-<img alt="License" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" />
+![License]([https://img.shields.io/badge/Supabase-3ECF8E?style=flat&logo=supabase&logoColor=white](https://img.shields.io/badge/license-MIT-blue?style=flat-square))
 ![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=flat&logo=supabase&logoColor=white)
 ![Tauri](https://img.shields.io/badge/Tauri-FFC131?style=flat&logo=tauri&logoColor=white)
 ![React](https://img.shields.io/badge/React-61DAFB?style=flat&logo=react&logoColor=black)
