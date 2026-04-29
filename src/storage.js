@@ -27,13 +27,14 @@ export async function listFiles(bucket, prefix = "", includeHidden = false) {
       type: "folder" 
     }));
 
-  const placeholderNames = [".keep", ".emptyFolderPlaceholder"];
+  const placeholderNames = [".keep", ".emptyFolderPlaceholder", ".supabase_placeholder"];
 
   const files = data
-    .filter((item) => !isFolder(item) && (includeHidden || !placeholderNames.includes(item.name)))
+    .filter((item) => !isFolder(item))
     .map((item) => ({ 
       ...item, 
-      type: "file" 
+      type: "file",
+      isHidden: placeholderNames.includes(item.name)
     }));
 
   return [...folders, ...files];
@@ -49,6 +50,34 @@ export async function listBuckets() {
   return data;
 }
 
+export async function createBucket(name, isPublic = false) {
+  const supabase = getSupabase();
+  if (!supabase) return;
+  const { data, error } = await supabase.storage.createBucket(name, {
+    public: isPublic,
+    fileSizeLimit: null,
+    allowedMimeTypes: null,
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function updateBucket(id, options) {
+  const supabase = getSupabase();
+  if (!supabase) return;
+  const { data, error } = await supabase.storage.updateBucket(id, options);
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteBucket(id) {
+  const supabase = getSupabase();
+  if (!supabase) return;
+  const { data, error } = await supabase.storage.deleteBucket(id);
+  if (error) throw error;
+  return data;
+}
+
 // ─── Upload ──────────────────────────────────────────────────────────────────
 
 /**
@@ -58,7 +87,10 @@ export async function listBuckets() {
 export async function uploadFile(bucket, folderPath, file, onProgress) {
   const supabase = getSupabase();
   if (!supabase) return null;
-  const filePath = folderPath ? `${folderPath}/${file.name}` : file.name;
+
+  // Use webkitRelativePath if available to preserve directory structure
+  const relativePath = file.webkitRelativePath || file.name;
+  const filePath = folderPath ? `${folderPath}/${relativePath}` : relativePath;
 
   const { data, error } = await supabase.storage
     .from(bucket)
@@ -126,16 +158,25 @@ export async function renameFile(bucket, folderPath, oldName, newName) {
 export async function moveFolder(bucket, fromPrefix, toPrefix, onProgress) {
   const allFiles = await listAllFilesRecursive(bucket, fromPrefix);
   const total = allFiles.length;
+  if (total === 0) return 0;
+
   let done = 0;
+  const concurrency = 8;
+  const queue = [...allFiles];
 
-  for (const filePath of allFiles) {
-    const relativePath = filePath.slice(fromPrefix.length + 1);
-    const newPath = `${toPrefix}/${relativePath}`;
-    await moveFile(bucket, filePath, newPath);
-    done++;
-    if (onProgress) onProgress(Math.round((done / total) * 100));
-  }
+  const workers = Array(Math.min(concurrency, total)).fill(null).map(async () => {
+    while (queue.length > 0) {
+      const filePath = queue.shift();
+      if (!filePath) break;
+      const relativePath = filePath.slice(fromPrefix.length + 1);
+      const newPath = `${toPrefix}/${relativePath}`;
+      await moveFile(bucket, filePath, newPath);
+      done++;
+      if (onProgress) onProgress(Math.round((done / total) * 100));
+    }
+  });
 
+  await Promise.all(workers);
   return total;
 }
 
@@ -197,6 +238,24 @@ async function listAllFilesRecursive(bucket, prefix) {
   }
 
   return results;
+}
+
+/**
+ * Find and delete all placeholder files in a bucket.
+ */
+export async function prunePlaceholders(bucket) {
+  const allFiles = await listAllFilesRecursive(bucket, "");
+  const placeholderNames = [".keep", ".emptyFolderPlaceholder", ".supabase_placeholder"];
+  
+  const toDelete = allFiles.filter(path => {
+    const name = path.split("/").pop();
+    return placeholderNames.includes(name);
+  });
+
+  if (toDelete.length > 0) {
+    await deleteFiles(bucket, toDelete);
+  }
+  return toDelete.length;
 }
 
 /**

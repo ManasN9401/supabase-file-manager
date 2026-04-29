@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   listBuckets,
+  createBucket,
+  updateBucket,
+  deleteBucket,
+  prunePlaceholders,
   listFiles,
   uploadFile,
   downloadFile,
@@ -270,6 +274,7 @@ export default function App() {
   const [hasCredentials, setHasCredentials] = useState(!!getSupabase());
 
   const fileInputRef = useRef();
+  const folderInputRef = useRef();
   const dragSourceRef = useRef(null);
   const [dragOverId, setDragOverId] = useState(null);
 
@@ -401,23 +406,81 @@ export default function App() {
 
   // ── Upload ─────────────────────────────────────────────────────────────────
 
+  const uploadBatch = async (files, labelPrefix) => {
+    const total = files.length;
+    let done = 0;
+    const individualProgress = new Array(total).fill(0);
+    const concurrency = 6;
+    
+    const updateProgress = () => {
+      const sum = individualProgress.reduce((a, b) => a + b, 0);
+      const avg = Math.round(sum / total);
+      setProgress({ 
+        label: `${labelPrefix} (${done}/${total})…`, 
+        value: avg 
+      });
+    };
+
+    // Initialize progress display
+    updateProgress();
+
+    const queue = [...files.entries()];
+    const workers = Array(Math.min(concurrency, total)).fill(null).map(async () => {
+      while (queue.length > 0) {
+        const item = queue.shift();
+        if (!item) break;
+        const [index, file] = item;
+        try {
+          await uploadFile(activeBucket, parentPath(path), file, (v) => {
+            individualProgress[index] = v;
+            updateProgress();
+          });
+          
+          // Smart Cleanup: If we successfully uploaded a real file, 
+          // check if there's a placeholder to remove.
+          const placeholder = filesRef.current.find(f => f.isHidden);
+          if (placeholder) {
+            deleteFiles(activeBucket, [buildPath(path, placeholder.name)]).catch(() => {});
+          }
+
+          done++;
+          individualProgress[index] = 100;
+          updateProgress();
+        } catch (err) {
+          toastError(err);
+          individualProgress[index] = 100; 
+          updateProgress();
+        }
+      }
+    });
+
+    await Promise.all(workers);
+    return done;
+  };
+
   const handleFileInputChange = async (e) => {
     const fileList = Array.from(e.target.files);
     if (!fileList.length) return;
-    let done = 0;
-    for (const file of fileList) {
-      try {
-        setProgress({ label: `Uploading ${file.name}…`, value: 0 });
-        await uploadFile(activeBucket, parentPath(path), file, (v) =>
-          setProgress({ label: `Uploading ${file.name}…`, value: v })
-        );
-        done++;
-      } catch (err) {
-        toastError(err);
-      }
-    }
+    
+    const done = await uploadBatch(fileList, "Uploading files");
+    
     setProgress(null);
     if (done) toast(`Uploaded ${done} file${done !== 1 ? "s" : ""}`);
+    refresh();
+    e.target.value = "";
+  };
+
+  const handleFolderInputChange = async (e) => {
+    const fileList = Array.from(e.target.files).filter(f => 
+      !f.name.startsWith(".keep") && 
+      !f.name.includes("placeholder")
+    );
+    if (!fileList.length) return;
+    
+    const done = await uploadBatch(fileList, "Uploading folder");
+    
+    setProgress(null);
+    if (done) toast(`Uploaded ${done} files from folder`);
     refresh();
     e.target.value = "";
   };
@@ -534,7 +597,7 @@ export default function App() {
   const createFolder = async (name) => {
     setModal(null);
     try {
-      const placeholder = new File([""], ".keep", { type: "text/plain" });
+      const placeholder = new File([""], ".supabase_placeholder", { type: "text/plain" });
       const folderPath = buildPath(path, name);
       await uploadFile(activeBucket, folderPath, placeholder);
       toast(`Created folder "${name}"`);
@@ -618,12 +681,89 @@ export default function App() {
     });
   };
 
-  // ── Derived state ──────────────────────────────────────────────────────────
+  // ── Buckets Management ─────────────────────────────────────────────────────
 
+  const refreshBuckets = useCallback(async () => {
+    try {
+      const data = await listBuckets();
+      setBuckets(data);
+    } catch (err) {
+      toastError(err);
+    }
+  }, [toastError]);
+
+  const handleTogglePublic = async (bucket) => {
+    try {
+      await updateBucket(bucket.id, { public: !bucket.public });
+      toast(`Bucket "${bucket.name}" is now ${!bucket.public ? "Public" : "Private"}`);
+      refreshBuckets();
+    } catch (err) {
+      toastError(err);
+    }
+  };
+
+  const handleDeleteBucket = async (id, name) => {
+    if (!confirm(`Are you sure you want to delete the bucket "${name}" and ALL its contents? This cannot be undone.`)) return;
+    try {
+      await deleteBucket(id);
+      toast(`Deleted bucket "${name}"`);
+      refreshBuckets();
+      if (activeBucket === name) {
+        setActiveBucket(null);
+        setPath([]);
+      }
+    } catch (err) {
+      toastError(err);
+    }
+  };
+
+  const handleCreateBucket = async () => {
+    const name = prompt("Enter new bucket name:");
+    if (!name) return;
+    try {
+      await createBucket(name, false);
+      toast(`Created bucket "${name}"`);
+      refreshBuckets();
+    } catch (err) {
+      toastError(err);
+    }
+  };
+
+  const handlePrune = async (id, name) => {
+    if (!confirm(`Are you sure you want to prune all placeholders in "${name}"? Any folders that are currently empty will disappear.`)) return;
+    try {
+      const count = await prunePlaceholders(id);
+      toast(`Removed ${count} placeholders from "${name}"`);
+      refreshBuckets();
+    } catch (err) {
+      toastError(err);
+    }
+  };
+
+  const openBucketEdit = (bucket) => {
+    setModal({ type: "edit-bucket", bucket });
+  };
+
+  const handleUpdateBucket = async (id, options) => {
+    try {
+      await updateBucket(id, options);
+      toast(`Updated settings for "${id}"`);
+      setModal({ type: "settings", initialTab: "buckets" });
+      refreshBuckets();
+    } catch (err) {
+      toastError(err);
+    }
+  };
+
+  // ── Derived state ──────────────────────────────────────────────────────────
+  
+  const filesRef = useRef([]);
+  filesRef.current = files;
+  const visibleFiles = files.filter(f => !f.isHidden);
   const selectedItems = files.filter((f) => selected.has(f.id));
 
   // ── Render ─────────────────────────────────────────────────────────────────
-
+  
   if (!hasCredentials) {
     return (
       <SetupScreen onConnect={(url, key) => {
@@ -706,6 +846,9 @@ export default function App() {
             <button className="btn" onClick={(e) => { e.stopPropagation(); setModal({ type: "new-folder" }); }}>
               + Folder
             </button>
+            <button className="btn" onClick={(e) => { e.stopPropagation(); folderInputRef.current.click(); }}>
+              ↑ Folder
+            </button>
             <button className="btn primary" onClick={(e) => { e.stopPropagation(); fileInputRef.current.click(); }}>
               ↑ Upload
             </button>
@@ -715,6 +858,14 @@ export default function App() {
               multiple
               style={{ display: "none" }}
               onChange={handleFileInputChange}
+            />
+            <input
+              ref={folderInputRef}
+              type="file"
+              webkitdirectory="true"
+              directory="true"
+              style={{ display: "none" }}
+              onChange={handleFolderInputChange}
             />
           </div>
         </div>
@@ -727,14 +878,14 @@ export default function App() {
               <div className="spinner" />
               <div>Loading files…</div>
             </div>
-          ) : files.length === 0 ? (
+          ) : visibleFiles.length === 0 ? (
             <div className="empty-state">
               <div className="empty-icon">📂</div>
               <div>This folder is empty</div>
             </div>
           ) : view === "grid" ? (
             <div className="file-grid">
-              {files.map((item) => (
+              {visibleFiles.map((item) => (
                 <FileCard
                   key={item.id}
                   item={item}
@@ -757,7 +908,7 @@ export default function App() {
                 <span className="row-size">Size</span>
                 <span className="row-date">Modified</span>
               </div>
-              {files.map((item) => (
+              {visibleFiles.map((item) => (
                 <FileRow
                   key={item.id}
                   item={item}
@@ -776,7 +927,7 @@ export default function App() {
         </div>
 
         <div className="status-bar">
-          <span>{files.filter(f => f.type === "folder").length} folders, {files.filter(f => f.type !== "folder").length} files</span>
+          <span>{visibleFiles.filter(f => f.type === "folder").length} folders, {visibleFiles.filter(f => f.type !== "folder").length} files</span>
           <span className="status-spacer" />
           <button className="status-refresh" onClick={refresh}>↺ Refresh</button>
         </div>
@@ -821,6 +972,13 @@ export default function App() {
 
       {modal?.type === "settings" && (
         <SettingsModal
+          buckets={buckets}
+          onRefreshBuckets={refreshBuckets}
+          onCreateBucket={handleCreateBucket}
+          onDeleteBucket={handleDeleteBucket}
+          onPruneBucket={handlePrune}
+          onTogglePublic={handleTogglePublic}
+          onEditBucket={openBucketEdit}
           onSave={(url, key) => {
             initSupabase(url, key);
             setHasCredentials(true);
@@ -835,6 +993,15 @@ export default function App() {
             setActiveBucket(null);
           }}
           onClose={() => setModal(null)}
+          initialTab={modal.initialTab}
+        />
+      )}
+
+      {modal?.type === "edit-bucket" && (
+        <BucketEditModal
+          bucket={modal.bucket}
+          onSave={(options) => handleUpdateBucket(modal.bucket.id, options)}
+          onClose={() => setModal({ type: "settings", initialTab: "buckets" })}
         />
       )}
 
@@ -868,25 +1035,104 @@ function SetupScreen({ onConnect }) {
   );
 }
 
-function SettingsModal({ onSave, onDisconnect, onClose }) {
+function SettingsModal({ 
+  buckets, 
+  onRefreshBuckets, 
+  onCreateBucket, 
+  onDeleteBucket, 
+  onPruneBucket, 
+  onTogglePublic, 
+  onEditBucket,
+  onSave, 
+  onDisconnect, 
+  onClose, 
+  initialTab = "connection" 
+}) {
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [url, setUrl] = useState(localStorage.getItem("supabase_url") || "");
   const [key, setKey] = useState(localStorage.getItem("supabase_key") || "");
+  const [loadingBuckets, setLoadingBuckets] = useState(false);
+
+  useEffect(() => {
+    if (activeTab === "buckets" && getSupabase()) {
+      setLoadingBuckets(true);
+      onRefreshBuckets().finally(() => setLoadingBuckets(false));
+    }
+  }, [activeTab, onRefreshBuckets]);
 
   return (
-    <Modal title="Connection Settings" onClose={onClose}>
-      <div className="form-group">
-        <label>Project URL</label>
-        <input type="text" value={url} onChange={(e) => setUrl(e.target.value)} />
+    <Modal title="Settings" onClose={onClose}>
+      <div className="modal-tabs">
+        <button className={`tab-btn ${activeTab === "connection" ? "active" : ""}`} onClick={() => setActiveTab("connection")}>
+          Connection
+        </button>
+        <button className={`tab-btn ${activeTab === "buckets" ? "active" : ""}`} onClick={() => setActiveTab("buckets")}>
+          Buckets & Policies
+        </button>
       </div>
-      <div className="form-group">
-        <label>Service Role Key</label>
-        <input type="password" value={key} onChange={(e) => setKey(e.target.value)} />
-      </div>
-      <div className="modal-btns">
-        <button className="btn danger" onClick={onDisconnect}>Disconnect</button>
-        <div style={{ flex: 1 }} />
-        <button className="btn" onClick={onClose}>Cancel</button>
-        <button className="btn primary" onClick={() => onSave(url, key)}>Save Changes</button>
+
+      <div className="tab-content">
+        {activeTab === "connection" ? (
+          <div className="tab-pane">
+            <div className="form-group">
+              <label>Project URL</label>
+              <input type="text" value={url} onChange={(e) => setUrl(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label>Service Role Key</label>
+              <input type="password" value={key} onChange={(e) => setKey(e.target.value)} />
+            </div>
+            <div className="modal-btns">
+              <button className="btn danger" onClick={onDisconnect}>Disconnect</button>
+              <div style={{ flex: 1 }} />
+              <button className="btn" onClick={onClose}>Cancel</button>
+              <button className="btn primary" onClick={() => onSave(url, key)}>Save Changes</button>
+            </div>
+          </div>
+        ) : (
+          <div className="tab-pane">
+            <div className="bucket-mgr-header">
+              <span className="mgr-label">Manage your storage buckets and their access policies.</span>
+              <button className="btn" onClick={onCreateBucket}>+ New Bucket</button>
+            </div>
+            
+            <div className="bucket-mgr-list">
+              {loadingBuckets ? (
+                <div className="mgr-loading">Loading buckets…</div>
+              ) : buckets.length === 0 ? (
+                <div className="mgr-empty">No buckets found.</div>
+              ) : (
+                buckets.map((b) => (
+                  <div key={b.id} className="bucket-mgr-item">
+                    <div className="mgr-item-info">
+                      <div className="mgr-item-name">
+                        <span className="mgr-icon">🗄️</span>
+                        {b.name}
+                      </div>
+                      <div className="mgr-item-meta">
+                        ID: {b.id} • Created: {new Date(b.created_at).toLocaleDateString()}
+                      </div>
+                    </div>
+                      <div className="mgr-item-actions">
+                        <div className="policy-toggle" onClick={() => onTogglePublic(b)}>
+                          <div className={`toggle-track ${b.public ? "on" : ""}`}>
+                            <div className="toggle-thumb" />
+                          </div>
+                          <span className="toggle-label">{b.public ? "Public" : "Private"}</span>
+                        </div>
+                        <button className="btn" onClick={() => onEditBucket(b)}>Edit</button>
+                        <button className="btn" title="Clean all hidden placeholders" onClick={() => onPruneBucket(b.id, b.name)}>Prune</button>
+                        <button className="btn-icon danger" title="Delete Bucket" onClick={() => onDeleteBucket(b.id, b.name)}>🗑️</button>
+                      </div>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="modal-btns">
+              <button className="btn" onClick={onClose}>Close</button>
+            </div>
+          </div>
+        )}
       </div>
     </Modal>
   );
@@ -927,6 +1173,102 @@ function NewFolderModal({ onCreate, onClose }) {
       <div className="modal-btns">
         <button className="btn" onClick={onClose}>Cancel</button>
         <button className="btn primary" disabled={!name.trim()} onClick={submit}>Create</button>
+      </div>
+    </Modal>
+  );
+}
+
+function BucketEditModal({ bucket, onSave, onClose }) {
+  const [isPublic, setIsPublic] = useState(bucket.public);
+  const [sizeLimit, setSizeLimit] = useState(bucket.file_size_limit || "");
+  const [mimeTypes, setMimeTypes] = useState(bucket.allowed_mime_types?.join(", ") || "");
+
+  const submit = () => {
+    onSave({
+      public: isPublic,
+      fileSizeLimit: sizeLimit ? parseInt(sizeLimit) : null,
+      allowedMimeTypes: mimeTypes ? mimeTypes.split(",").map(t => t.trim()) : null,
+    });
+  };
+
+  return (
+    <Modal title={`Bucket Configuration: ${bucket.name}`} onClose={onClose}>
+      <div className="edit-modal-scroll">
+        <section className="config-section">
+          <h4 className="config-title">Security & Access</h4>
+          <div className="form-group large">
+            <label>Public Access</label>
+            <div className="policy-toggle-row" onClick={() => setIsPublic(!isPublic)}>
+              <div className={`toggle-track ${isPublic ? "on" : ""}`}>
+                <div className="toggle-thumb" />
+              </div>
+              <div className="toggle-info">
+                <span className="toggle-status">{isPublic ? "Public" : "Private"}</span>
+                <span className="toggle-desc">
+                  {isPublic 
+                    ? "Files are accessible via public URL without authentication." 
+                    : "Files are protected and require a signed URL or token."}
+                </span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="config-section">
+          <h4 className="config-title">Upload Restrictions</h4>
+          <div className="config-grid">
+            <div className="form-group">
+              <label>File Size Limit (Bytes)</label>
+              <input 
+                type="number" 
+                className="modal-input large" 
+                value={sizeLimit} 
+                onChange={(e) => setSizeLimit(e.target.value)} 
+                placeholder="Unlimited" 
+              />
+            </div>
+            <div className="form-group">
+              <label>Allowed MIME Types</label>
+              <input 
+                type="text" 
+                className="modal-input large" 
+                value={mimeTypes} 
+                onChange={(e) => setMimeTypes(e.target.value)} 
+                placeholder="e.g. image/*, video/*" 
+              />
+            </div>
+          </div>
+          <p className="mgr-item-meta">Use comma-separated values for MIME types. Leave empty for no restrictions.</p>
+        </section>
+
+        <section className="config-section policy-highlight">
+          <div className="policy-header-row">
+            <h4 className="config-title">RLS Policy Helper</h4>
+            <span className="policy-tag">SQL Template</span>
+          </div>
+          <p className="policy-intro">
+            <strong>Note:</strong> You are using a <u>Service Role Key</u>, which bypasses all policies. 
+            Only add these policies if you want to allow <em>public users</em> or <em>authenticated users</em> 
+            to access this bucket from other applications.
+          </p>
+          <div className="policy-code-block">
+            <div className="code-header">
+              <span>SQL EDITOR Snippet</span>
+              <button className="btn-small" onClick={() => {
+                navigator.clipboard.writeText(`CREATE POLICY "Public Access" ON storage.objects\nFOR ALL TO public\nUSING (bucket_id = '${bucket.name}');`);
+                alert("Copied to clipboard!");
+              }}>Copy</button>
+            </div>
+            <pre className="code-content">
+              {`CREATE POLICY "Public Access" ON storage.objects\nFOR ALL TO public\nUSING (bucket_id = '${bucket.name}');`}
+            </pre>
+          </div>
+        </section>
+      </div>
+
+      <div className="modal-btns border-top">
+        <button className="btn secondary" onClick={onClose}>Cancel</button>
+        <button className="btn primary" onClick={submit}>Save Changes</button>
       </div>
     </Modal>
   );
