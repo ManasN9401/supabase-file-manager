@@ -7,18 +7,18 @@
 
 A lightweight desktop app for managing Supabase Storage — built with Tauri + React. Designed for performance, security, and ease of use.
 
-## ✨ Features
+##  Features
 
-*   **📁 Full Folder Support**: Upload entire directory trees from your computer while preserving the folder structure.
-*   **⚡ High Performance**: Parallelized operations (concurrency controlled) for lightning-fast batch uploads and recursive folder moves/renames.
-*   **🛡️ Secure & Credential-Agnostic**: Keys are stored locally on your machine and never baked into the app.
-*   **🗄️ Bucket Management**: Create, delete, and configure buckets directly. Toggle Public/Private access and set file size/MIME restrictions.
-*   **🪄 Smart Placeholders**: Automatically manages `.keep` files to prevent empty folders from vanishing in Supabase, with an auto-cleanup system.
-*   **📜 Policy Helper**: Integrated SQL generator to help you set up Row Level Security (RLS) in seconds.
+*    Full Folder Support**: Upload entire directory trees from your computer while preserving the folder structure.
+*    High Performance**: Parallelized operations (concurrency controlled) for lightning-fast batch uploads and recursive folder moves/renames.
+*    Secure & Credential-Agnostic**: Keys are stored locally on your machine and never baked into the app.
+*    Bucket Management**: Create, delete, and configure buckets directly. Toggle Public/Private access and set file size/MIME restrictions.
+*    Smart Placeholders**: Automatically manages `.keep` files to prevent empty folders from vanishing in Supabase, with an auto-cleanup system.
+*    Policy Helper**: Integrated SQL generator to help you set up Row Level Security (RLS) in seconds.
 
 ---
 
-## 🚀 Getting Started
+##  Getting Started
 
 When you first launch the app, you will be prompted to enter your:
 1.  **Supabase Project URL**
@@ -44,7 +44,7 @@ You can use two types of keys with this app:
 
 ---
 
-## 🛠️ Integrated Policy Helper
+##  Integrated Policy Helper
 
 If you use the **Anon Key**, the app includes a "Policy Helper" in the Bucket Settings (**Gear Icon > Buckets > Edit**). This generates the exact SQL you need for:
 *   Full Management Access
