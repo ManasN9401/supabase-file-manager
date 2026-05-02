@@ -766,8 +766,8 @@ export default function App() {
   
   if (!hasCredentials) {
     return (
-      <SetupScreen onConnect={(url, key) => {
-        initSupabase(url, key);
+      <SetupScreen onConnect={(url, secretKey, publishableKey) => {
+        initSupabase(url, secretKey, publishableKey);
         setHasCredentials(true);
         toast("Connected to Supabase!");
       }} />
@@ -979,8 +979,8 @@ export default function App() {
           onPruneBucket={handlePrune}
           onTogglePublic={handleTogglePublic}
           onEditBucket={openBucketEdit}
-          onSave={(url, key) => {
-            initSupabase(url, key);
+          onSave={(url, secretKey, publishableKey) => {
+            initSupabase(url, secretKey, publishableKey);
             setHasCredentials(true);
             setModal(null);
             toast("Settings saved!");
@@ -1012,22 +1012,27 @@ export default function App() {
 
 function SetupScreen({ onConnect }) {
   const [url, setUrl] = useState("");
-  const [key, setKey] = useState("");
+  const [secretKey, setSecretKey] = useState("");
+  const [publishableKey, setPublishableKey] = useState("");
 
   return (
     <div className="setup-screen">
       <div className="setup-card">
         <h1>Storage Manager</h1>
-        <p>Connect to your Supabase project. Admin access is required for folder operations, so please use your <strong>Service Role Key</strong>.</p>
+        <p>Connect to your Supabase project. Admin access is required for folder operations, so please use your <strong>Secret Key</strong>.</p>
         <div className="form-group">
           <label>Project URL</label>
           <input type="text" placeholder="https://your-project.supabase.co" value={url} onChange={(e) => setUrl(e.target.value)} />
         </div>
         <div className="form-group">
-          <label>Service Role Key</label>
-          <input type="password" placeholder="Secret Key" value={key} onChange={(e) => setKey(e.target.value)} />
+          <label>Publishable Key</label>
+          <input type="text" placeholder="Project API Key" value={publishableKey} onChange={(e) => setPublishableKey(e.target.value)} />
         </div>
-        <button className="btn primary full" disabled={!url || !key} onClick={() => onConnect(url, key)}>
+        <div className="form-group">
+          <label>Secret Key</label>
+          <input type="password" placeholder="Project Secret Key" value={secretKey} onChange={(e) => setSecretKey(e.target.value)} />
+        </div>
+        <button className="btn primary full" disabled={!url || !secretKey} onClick={() => onConnect(url, secretKey, publishableKey)}>
           Connect
         </button>
       </div>
@@ -1050,7 +1055,8 @@ function SettingsModal({
 }) {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [url, setUrl] = useState(localStorage.getItem("supabase_url") || "");
-  const [key, setKey] = useState(localStorage.getItem("supabase_key") || "");
+  const [secretKey, setSecretKey] = useState(localStorage.getItem("supabase_secret_key") || localStorage.getItem("supabase_key") || "");
+  const [publishableKey, setPublishableKey] = useState(localStorage.getItem("supabase_publishable_key") || "");
   const [loadingBuckets, setLoadingBuckets] = useState(false);
 
   useEffect(() => {
@@ -1079,14 +1085,18 @@ function SettingsModal({
               <input type="text" value={url} onChange={(e) => setUrl(e.target.value)} />
             </div>
             <div className="form-group">
-              <label>Service Role Key</label>
-              <input type="password" value={key} onChange={(e) => setKey(e.target.value)} />
+              <label>Publishable Key</label>
+              <input type="text" value={publishableKey} onChange={(e) => setPublishableKey(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label>Secret Key</label>
+              <input type="password" value={secretKey} onChange={(e) => setSecretKey(e.target.value)} />
             </div>
             <div className="modal-btns">
               <button className="btn danger" onClick={onDisconnect}>Disconnect</button>
               <div style={{ flex: 1 }} />
               <button className="btn" onClick={onClose}>Cancel</button>
-              <button className="btn primary" onClick={() => onSave(url, key)}>Save Changes</button>
+              <button className="btn primary" onClick={() => onSave(url, secretKey, publishableKey)}>Save Changes</button>
             </div>
           </div>
         ) : (
@@ -1247,7 +1257,7 @@ function BucketEditModal({ bucket, onSave, onClose }) {
             <span className="policy-tag">SQL Template</span>
           </div>
           <p className="policy-intro">
-            <strong>Note:</strong> You are using a <u>Service Role Key</u>, which bypasses all policies. 
+            <strong>Note:</strong> You are using a <u>Secret Key</u>, which bypasses all policies. 
             Only add these policies if you want to allow <em>public users</em> or <em>authenticated users</em> 
             to access this bucket from other applications.
           </p>

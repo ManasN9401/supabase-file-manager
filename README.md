@@ -22,7 +22,7 @@ A lightweight desktop app for managing Supabase Storage — built with Tauri + R
 
 When you first launch the app, you will be prompted to enter your:
 1.  **Supabase Project URL**
-2.  **Service Role Key** (Recommended for full admin control)
+2.  **Secret Key** (Recommended for full admin control)
 
 These credentials are saved securely in your local machine's `localStorage` and never sent to any third party.
 
@@ -32,12 +32,12 @@ These credentials are saved securely in your local machine's `localStorage` and 
 
 You can use two types of keys with this app:
 
-### 1. Service Role Key (Admin Access)
+### 1. Secret Key (Admin Access)
 *   **Recommended for personal use.**
 *   Bypasses all RLS (Row Level Security) policies.
 *   Required for full recursive operations (Rename/Move/Delete) and managing bucket settings.
 
-### 2. Anon Key (Secure Sharing)
+### 2. Publishable Key (Secure Sharing)
 *   **Safe for multi-user environments.**
 *   Respects RLS policies.
 *   **Requires Setup**: You must use the **Policy Helper** in the app's bucket settings to copy and apply SQL policies to your Supabase Dashboard.
@@ -46,7 +46,7 @@ You can use two types of keys with this app:
 
 ## 🛠️ Integrated Policy Helper
 
-If you use the **Anon Key**, the app includes a "Policy Helper" in the Bucket Settings (**Gear Icon > Buckets > Edit**). This generates the exact SQL you need for:
+If you use the **Publishable Key**, the app includes a "Policy Helper" in the Bucket Settings (**Gear Icon > Buckets > Edit**). This generates the exact SQL you need for:
 *   Full Management Access
 *   Public Read-Only Access
 *   Authenticated Uploads
